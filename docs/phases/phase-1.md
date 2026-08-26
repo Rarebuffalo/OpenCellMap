@@ -21,26 +21,26 @@ Without a clean, validated data foundation, all subsequent positioning algorithm
 - [x] **Milestone 1.1:** Minimal repository structure, `pyproject.toml`, Docker Compose (PostGIS 3.4), and `.env.example`.
 - [x] **Milestone 1.2:** Implement streaming dataset inspection tool (`scripts/inspect_dataset.py`) and synthetic test fixtures.
 - [x] **Milestone 1.3:** Source verification: verified OpenCelliD export structure (World Export vs 207 Country Exports table, India MCC 404/405 availability in World Export).
-- [ ] **Milestone 1.4:** Obtain verified real dataset export and execute inspection tool.
-- [ ] **Milestone 1.5:** Analyze inspection report and formally propose the normalized database schema.
-- [ ] **Milestone 1.6:** (Awaiting Approval) Implement PostGIS schema migrations and repository layer.
-- [ ] **Milestone 1.7:** Implement parser, normalizer, validator, and bulk loader.
-- [ ] **Milestone 1.8:** Ingest and verify dataset with automated integration tests.
+- [x] **Milestone 1.4:** Build and test streaming MCC extraction pipeline (`scripts/extract_mcc.py`) with constant memory profile.
+- [ ] **Milestone 1.5:** Obtain India dataset via extraction and execute inspection tool.
+- [ ] **Milestone 1.6:** Analyze inspection report and formally propose the normalized database schema.
+- [ ] **Milestone 1.7:** (Awaiting Approval) Implement PostGIS schema migrations and repository layer.
+- [ ] **Milestone 1.8:** Implement parser, normalizer, validator, and bulk loader.
+- [ ] **Milestone 1.9:** Ingest and verify dataset with automated integration tests.
 
 ---
 
 ## 4. Environment & Tooling Choices
 
 * **PostgreSQL 16 + PostGIS 3.4:** Enables spatial indexing (`GIST`) and native geometry operations.
-* **Polars:** Provides memory-safe streaming processing for multi-million-row CSV files.
+* **Polars & Streaming Gzip Readers:** Provides memory-safe streaming processing for multi-million-row CSV files without disk bloat.
 * **Pydantic v2:** Provides strict schema validation and configuration management.
 * **Pytest:** Automated test verification for parsers and statistical calculations.
 
 ---
 
-## 5. Source Verification Findings
+## 5. Architectural Decision: World Export -> Streaming MCC Extraction
 
-* **Fact:** India is absent from the 207-entry Country Specific Exports table on OpenCelliD.
-* **Fact:** Indian cellular data (MCC 404 and MCC 405) is contained inside the Worldwide Dataset (`cell_towers.csv.gz`).
-* **Fact:** World Export contains the standard 14-column header, while country exports often omit headers.
-* **Fact:** Exports cover observations from a rolling 18-month window.
+* **Decision:** Derive the India dataset (`data/raw/india_cell_towers.csv.gz`) by stream-filtering the World Export (`cell_towers.csv.gz`) for `mcc in (404, 405)`.
+* **Why:** OpenCelliD does not provide India as a separate pre-sliced file in the country export table. Streaming extraction processes the global stream on-the-fly, avoiding storing 5 GB uncompressed data on disk.
+* **Tradeoffs:** Requires a single download of the ~1 GB world dump or direct HTTP stream, but results in a clean, isolated ~100 MB regional file for all subsequent local development.
