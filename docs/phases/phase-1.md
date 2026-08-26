@@ -20,11 +20,12 @@ Without a clean, validated data foundation, all subsequent positioning algorithm
 
 - [x] **Milestone 1.1:** Minimal repository structure, `pyproject.toml`, Docker Compose (PostGIS 3.4), and `.env.example`.
 - [x] **Milestone 1.2:** Implement streaming dataset inspection tool (`scripts/inspect_dataset.py`) and synthetic test fixtures.
-- [ ] **Milestone 1.3:** Obtain real OpenCelliD dataset (India MCC 404/405) and execute inspection tool.
-- [ ] **Milestone 1.4:** Analyze inspection report and formally propose the normalized database schema.
-- [ ] **Milestone 1.5:** (Awaiting Approval) Implement PostGIS schema migrations and repository layer.
-- [ ] **Milestone 1.6:** Implement parser, normalizer, validator, and bulk loader.
-- [ ] **Milestone 1.7:** Ingest and verify dataset with automated integration tests.
+- [x] **Milestone 1.3:** Source verification: verified OpenCelliD export structure (World Export vs 207 Country Exports table, India MCC 404/405 availability in World Export).
+- [ ] **Milestone 1.4:** Obtain verified real dataset export and execute inspection tool.
+- [ ] **Milestone 1.5:** Analyze inspection report and formally propose the normalized database schema.
+- [ ] **Milestone 1.6:** (Awaiting Approval) Implement PostGIS schema migrations and repository layer.
+- [ ] **Milestone 1.7:** Implement parser, normalizer, validator, and bulk loader.
+- [ ] **Milestone 1.8:** Ingest and verify dataset with automated integration tests.
 
 ---
 
@@ -37,6 +38,9 @@ Without a clean, validated data foundation, all subsequent positioning algorithm
 
 ---
 
-## 5. Dataset Inspection Findings
+## 5. Source Verification Findings
 
-*(This section will be populated with empirical metrics after running the inspector on the real OpenCelliD dataset).*
+* **Fact:** India is absent from the 207-entry Country Specific Exports table on OpenCelliD.
+* **Fact:** Indian cellular data (MCC 404 and MCC 405) is contained inside the Worldwide Dataset (`cell_towers.csv.gz`).
+* **Fact:** World Export contains the standard 14-column header, while country exports often omit headers.
+* **Fact:** Exports cover observations from a rolling 18-month window.
