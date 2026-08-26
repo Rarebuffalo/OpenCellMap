@@ -1,0 +1,44 @@
+# Byte-compiled / optimized / C-extensions
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments & Packaging
+.venv/
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# IDE & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Project Data (NEVER commit large raw or processed datasets)
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# Environment variables & secrets
+.env
+*.env.local
+
+# Database Volumes & Local artifacts
+pgdata/
+reports/dataset-inspection/*
+!reports/dataset-inspection/.gitkeep
