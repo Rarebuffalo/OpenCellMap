@@ -57,3 +57,15 @@ Without a clean, validated data foundation, all subsequent positioning algorithm
 1. **Fact:** The live OpenCelliD World Export snapshot contains 5,372,778 rows total.
 2. **Fact:** All 5.37M rows correspond to non-Indian MCCs (primarily European, US, Middle Eastern, and African operators).
 3. **Inference:** OpenCelliD applies an 18-month rolling window filter to its free community export. India does not have active community contributors reporting to OpenCelliD within that rolling window, explaining why neither the country table nor the world export contains active Indian cell observations.
+
+---
+
+## 6. OpenCelliD Live API Feasibility Experiment
+
+* **Experiment Date:** 2026-08-29
+* **Endpoint Tested:** `https://opencellid.org/cell/get` and `https://opencellid.org/cell/getInArea`
+* **Findings:**
+  1. **Individual Cell Lookup (`/cell/get`):** Successfully resolved live Indian cell towers for MCC 404 (Airtel, Vi, Vodafone) and MCC 405 (Reliance Jio) in ~450ms–550ms.
+  2. **Area Query (`/cell/getInArea`):** Returned 50 Indian cells per bounding box when constrained under the 4 sq km limit.
+  3. **Architectural Role:** OpenCelliD is technically viable as an **optional online fallback provider** for single-cell lookups, but its 5,000 req/day quota and non-commercial community restrictions mean it cannot serve as our primary database layer. Full details in `docs/data/opencellid-api-feasibility.md`.
+
