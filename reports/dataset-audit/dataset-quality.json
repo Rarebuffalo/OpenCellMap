@@ -1,0 +1,83 @@
+{
+  "quality_audit_timestamp_utc": "2026-08-28T21:26:00Z",
+  "summary": {
+    "total_records_audited": 2494859,
+    "total_mcc_404_records": 1810097,
+    "total_mcc_405_records": 684762,
+    "total_malformed_rows": 0,
+    "total_null_island_coordinates": 0,
+    "total_out_of_bounds_coordinates": 0,
+    "total_inside_india_bbox": 2494859,
+    "percentage_inside_india_bbox": 100.0,
+    "duplicate_composite_keys": 0
+  },
+  "datasets": {
+    "404.csv": {
+      "total_rows": 1810097,
+      "malformed_rows": 0,
+      "radio_breakdown": {
+        "GSM": 987006,
+        "UMTS": 622989,
+        "LTE": 200076,
+        "CDMA": 15,
+        "NR": 11
+      },
+      "mcc_distribution": {
+        "404": 1810097
+      },
+      "distinct_mncs": 95,
+      "distinct_lacs_tacs": 12593,
+      "distinct_cids": 690856,
+      "unique_composite_keys": 1810097,
+      "duplicate_composite_keys": 0,
+      "lat_min": 7.003098,
+      "lat_max": 34.837819,
+      "lon_min": 68.162613,
+      "lon_max": 96.207962,
+      "null_island_count": 0,
+      "out_of_bounds_count": 0,
+      "in_india_bbox_count": 1810097,
+      "single_sample_count": 946334,
+      "single_sample_percentage": 52.28,
+      "created_timestamp_min_utc": "2008-06-25T03:53:10Z",
+      "created_timestamp_max_utc": "2023-04-16T18:25:19Z",
+      "updated_timestamp_min_utc": "2008-06-25T03:53:10Z",
+      "updated_timestamp_max_utc": "2023-04-16T18:28:34Z",
+      "range_suspicious_gt_50km": 490,
+      "non_zero_signal_count": 0
+    },
+    "405.csv": {
+      "total_rows": 684762,
+      "malformed_rows": 0,
+      "radio_breakdown": {
+        "GSM": 365356,
+        "UMTS": 80885,
+        "LTE": 238396,
+        "NR": 125
+      },
+      "mcc_distribution": {
+        "405": 684762
+      },
+      "distinct_mncs": 123,
+      "distinct_lacs_tacs": 5590,
+      "distinct_cids": 228007,
+      "unique_composite_keys": 684762,
+      "duplicate_composite_keys": 0,
+      "lat_min": 8.078384,
+      "lat_max": 34.582901,
+      "lon_min": 68.188705,
+      "lon_max": 96.161270,
+      "null_island_count": 0,
+      "out_of_bounds_count": 0,
+      "in_india_bbox_count": 684762,
+      "single_sample_count": 389873,
+      "single_sample_percentage": 56.94,
+      "created_timestamp_min_utc": "2008-08-09T13:57:29Z",
+      "created_timestamp_max_utc": "2023-04-17T06:14:43Z",
+      "updated_timestamp_min_utc": "2008-10-07T19:52:55Z",
+      "updated_timestamp_max_utc": "2023-04-17T06:39:30Z",
+      "range_suspicious_gt_50km": 97,
+      "non_zero_signal_count": 0
+    }
+  }
+}

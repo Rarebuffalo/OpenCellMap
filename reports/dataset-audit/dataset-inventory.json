@@ -1,0 +1,75 @@
+{
+  "audit_timestamp_utc": "2026-08-28T21:26:00Z",
+  "audit_source_directory": "/home/Krishna-Singh/Downloads/dataset-opencellmap",
+  "files": [
+    {
+      "file_name": "404.csv.zip",
+      "size_bytes": 37068517,
+      "size_mb": 35.35,
+      "format": "ZIP (Deflate)",
+      "sha256": "fe05e815ee1c47fd6e1f0e838e58cd4d6df5d47fae306d47310743caeef2cb68",
+      "modified_utc": "2026-08-28T21:15:27Z",
+      "category": "raw_cellular_data",
+      "inner_files": [
+        {
+          "name": "404.csv",
+          "uncompressed_bytes": 154829565,
+          "uncompressed_mb": 147.66,
+          "format": "CSV (14 columns)",
+          "record_count": 1810097,
+          "target_mcc": "404"
+        }
+      ]
+    },
+    {
+      "file_name": "405.csv.zip",
+      "size_bytes": 13500546,
+      "size_mb": 12.88,
+      "format": "ZIP (Deflate)",
+      "sha256": "d8255b793ecc1c55297131056c8fb49104078b027c97ca92553f0fa0e8de835b",
+      "modified_utc": "2026-08-28T21:16:08Z",
+      "category": "raw_cellular_data",
+      "inner_files": [
+        {
+          "name": "405.csv",
+          "uncompressed_bytes": 58194302,
+          "uncompressed_mb": 55.50,
+          "format": "CSV (14 columns)",
+          "record_count": 684762,
+          "target_mcc": "405"
+        }
+      ]
+    },
+    {
+      "file_name": "MCC-MNC India.csv",
+      "size_bytes": 7661,
+      "size_mb": 0.01,
+      "format": "CSV (4 columns)",
+      "sha256": "4bc46bce8ffab937387f7c58a7a15354f3f487b3b37fa2581118dcba6014b00e",
+      "modified_utc": "2026-08-28T21:16:48Z",
+      "category": "metadata_enrichment",
+      "record_count": 93,
+      "columns": ["mcc", "mnc", "operator", "circle"]
+    },
+    {
+      "file_name": "states_india.geojson.zip",
+      "size_bytes": 2147056,
+      "size_mb": 2.05,
+      "format": "ZIP (Deflate)",
+      "sha256": "adae2dee26f142970111d1cb49619c1b13786e90d7378a22ad7162969646d23c",
+      "modified_utc": "2026-08-28T21:17:13Z",
+      "category": "geographic_boundary_data",
+      "inner_files": [
+        {
+          "name": "states_india.geojson",
+          "uncompressed_bytes": 7809653,
+          "uncompressed_mb": 7.45,
+          "format": "GeoJSON FeatureCollection (MultiPolygon)",
+          "feature_type": "Indian State and Union Territory Boundaries"
+        }
+      ]
+    }
+  ],
+  "total_downloaded_size_mb": 50.29,
+  "total_cellular_records": 2494859
+}
