@@ -12,14 +12,14 @@ To transform raw data into a reliable positioning foundation, data flows through
 
 ```
 +-----------------------------------------------------------------------------------+
-| 1. RAW DATA SOURCE (OpenCelliD World Export: cell_towers.csv.gz)                   |
+| 1. RAW DATA SOURCES (MLS Historical Dumps / beaconDB Open Dumps: *.csv.gz)        |
 +-----------------------------------------------------------------------------------+
                                           |
                                           v
 +-----------------------------------------------------------------------------------+
-| 2. STREAMING EXTRACTION (scripts/extract_dataset.py)                              |
+| 2. STREAMING EXTRACTION & PROVENANCE (scripts/extract_dataset.py)                 |
 | - Memory-safe chunked decompression                                               |
-| - Strict 14-column header schema validation                                       |
+| - Strict 14-column header schema validation (MLS/OpenCelliD compatible)           |
 | - Filter target MCCs (e.g. 404, 405 for India)                                    |
 | - Generates: dataset.csv.gz + dataset.manifest.json + extraction report           |
 +-----------------------------------------------------------------------------------+

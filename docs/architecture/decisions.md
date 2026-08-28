@@ -55,3 +55,19 @@ This document records the foundational architectural decisions made for the Open
   * **Simple Explanation:** A manifest tells any developer or auditor exactly where a dataset came from, what filters created it, and proves its integrity with cryptographic checksums.
   * **Technical Explanation:** Provides verifiable provenance and data immutability. Ensures that downstream inspection, validation, and benchmarking results can be traced back to the exact source version.
 * **Consequences:** Requires the extraction and ingestion tools to generate and validate manifest JSON files alongside `.csv.gz` files.
+
+---
+
+## ADR 005: Multi-Source Primary Data Sourcing Strategy (CC0 Baseline + beaconDB)
+
+* **Status:** Proposed / Accepted in Research
+* **Context:** Empirical testing showed that OpenCelliD's rolling 18-month community public export lacks active Indian records (MCC 404/405), and its live API enforces strict 5,000 req/day caps with non-commercial restrictions. We need a legally clean, high-volume local dataset foundation for India that supports offline packaging and commercial startup viability.
+* **Decision:** 
+  1. Use **Historical Mozilla Location Service (MLS) Archives** (CC0 1.0 Public Domain) as our foundational bulk offline dataset for Indian cell towers.
+  2. Use **beaconDB** (CC0 / Public Domain) as our active continuous update source.
+  3. Relegate **OpenCelliD Live REST API** to an **optional online fallback provider** for resolving single cell cache misses.
+* **Why:**
+  * **Simple Explanation:** CC0 data has zero commercial restrictions, zero viral share-alike requirements, and deep historical coverage across India. OpenCelliD fills in recent individual misses via its API when online.
+  * **Technical Explanation:** MLS exports share the exact same 14-column CSV schema (`radio,mcc,net,area,cell,...`) as our existing extractor. CC0 licensing permits building unencumbered offline SQLite databases for mobile distribution without triggering CC-BY-SA copyleft constraints.
+* **Consequences:** The ingestion pipeline will support ingesting both MLS-formatted CSV dumps and continuous beaconDB updates, while the query resolver delegates online misses to an optional OpenCelliD adapter.
+

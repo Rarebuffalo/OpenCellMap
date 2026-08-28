@@ -69,3 +69,16 @@ Without a clean, validated data foundation, all subsequent positioning algorithm
   2. **Area Query (`/cell/getInArea`):** Returned 50 Indian cells per bounding box when constrained under the 4 sq km limit.
   3. **Architectural Role:** OpenCelliD is technically viable as an **optional online fallback provider** for single-cell lookups, but its 5,000 req/day quota and non-commercial community restrictions mean it cannot serve as our primary database layer. Full details in `docs/data/opencellid-api-feasibility.md`.
 
+---
+
+## 7. Bulk Cellular Dataset Source Investigation
+
+* **Investigation Date:** 2026-08-29
+* **Candidates Evaluated:** Historical Mozilla Location Service (MLS) Archives, beaconDB, WiGLE, OpenCelliD, and Commercial Geolocation APIs.
+* **Key Findings:**
+  1. **Primary Bulk Baseline:** Historical MLS Cell Export (`MLS-full-cell-export-*.csv.gz`) provides millions of Indian cell observations under **CC0 1.0 Universal (Public Domain)**, sharing the identical 14-column CSV schema.
+  2. **Continuous Updates:** **beaconDB** provides modern CC0 crowdsourced telemetry.
+  3. **Fallback Provider:** **OpenCelliD Live API** serves as an optional online resolver for cache misses under CC-BY-SA 4.0.
+  4. **Full Investigation Document:** Recorded in [docs/data/dataset-sources.md](file:///home/Krishna-Singh/OpenCellMap/docs/data/dataset-sources.md).
+
+
