@@ -1,0 +1,30 @@
+{
+  "manifest": {
+    "dataset_name": "india_cellular_dataset",
+    "source_dataset": "opencellid_world_export_http",
+    "source_checksum": "8a54f13363219a95886e85441ebb8cd64e46eeee3f5ca0e5340b4c5b320bf909",
+    "source_version_date": "latest",
+    "extraction_timestamp": "2026-08-28T19:34:47.721292+00:00",
+    "extractor_version": "0.2.0",
+    "filters_applied": [
+      {
+        "type": "mcc_filter",
+        "target_mccs": [
+          "404",
+          "405"
+        ]
+      }
+    ],
+    "rows_processed": 5372778,
+    "rows_written": 0,
+    "malformed_rows": 0,
+    "output_checksum": "d3cf4a6b7d63320647e0ba573a34137ac92e630009ef474973c7a7c2a1215bc6",
+    "output_size_bytes": 99,
+    "output_file": "india_cell_towers.csv.gz"
+  },
+  "performance": {
+    "elapsed_seconds": 55.22,
+    "throughput_rows_per_sec": 97305.1
+  },
+  "mcc_breakdown": {}
+}

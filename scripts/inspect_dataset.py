@@ -174,7 +174,9 @@ def inspect_opencellid_dataset(
             metrics.lon_min = float(lon_valid.min())  # type: ignore
             metrics.lon_max = float(lon_valid.max())  # type: ignore
 
-        metrics.missing_coords_count = int(df["lat"].is_null().sum() + df["lon"].is_null().sum())
+        lat_nulls = int(df["lat"].is_null().sum())
+        lon_nulls = int(df["lon"].is_null().sum())
+        metrics.missing_coords_count = lat_nulls + lon_nulls
 
         # Null Island (0,0)
         null_island_filter = (df["lat"] == 0.0) & (df["lon"] == 0.0)
@@ -214,10 +216,10 @@ def inspect_opencellid_dataset(
         }
 
     if "net" in df.columns:
-        metrics.unique_mnc_count = int(df["net"].n_unique())
+        metrics.unique_mnc_count = df["net"].n_unique()
 
     if "area" in df.columns:
-        metrics.unique_lac_count = int(df["area"].n_unique())
+        metrics.unique_lac_count = df["area"].n_unique()
         invalid_area = (df["area"] <= 0) | (df["area"] > 65535)
         metrics.invalid_area_count = int(invalid_area.sum())
         if metrics.invalid_area_count > 0:
@@ -226,7 +228,7 @@ def inspect_opencellid_dataset(
             )
 
     if "cell" in df.columns:
-        metrics.unique_cell_id_count = int(df["cell"].n_unique())
+        metrics.unique_cell_id_count = df["cell"].n_unique()
         invalid_cell = df["cell"] <= 0
         metrics.invalid_cell_count = int(invalid_cell.sum())
         if metrics.invalid_cell_count > 0:
@@ -268,29 +270,37 @@ def inspect_opencellid_dataset(
         metrics.average_signal_recorded_count = int(sig_valid.sum())
 
     # 5. Timestamps
-    if "created" in df.columns:
-        c_min = df["created"].min()
-        c_max = df["created"].max()
-        if c_min and c_min > 0:
-            metrics.created_min_utc = datetime.datetime.fromtimestamp(
-                c_min, datetime.timezone.utc
-            ).strftime("%Y-%m-%d %H:%M:%S UTC")
-        if c_max and c_max > 0:
-            metrics.created_max_utc = datetime.datetime.fromtimestamp(
-                c_max, datetime.timezone.utc
-            ).strftime("%Y-%m-%d %H:%M:%S UTC")
+    if "created" in df.columns and len(df["created"].drop_nulls()) > 0:
+        c_min_val = df["created"].min()
+        c_max_val = df["created"].max()
+        if c_min_val is not None:
+            c_min = int(str(c_min_val).split(".")[0])
+            if c_min > 0:
+                metrics.created_min_utc = datetime.datetime.fromtimestamp(
+                    float(c_min), datetime.timezone.utc
+                ).strftime("%Y-%m-%d %H:%M:%S UTC")
+        if c_max_val is not None:
+            c_max = int(str(c_max_val).split(".")[0])
+            if c_max > 0:
+                metrics.created_max_utc = datetime.datetime.fromtimestamp(
+                    float(c_max), datetime.timezone.utc
+                ).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    if "updated" in df.columns:
-        u_min = df["updated"].min()
-        u_max = df["updated"].max()
-        if u_min and u_min > 0:
-            metrics.updated_min_utc = datetime.datetime.fromtimestamp(
-                u_min, datetime.timezone.utc
-            ).strftime("%Y-%m-%d %H:%M:%S UTC")
-        if u_max and u_max > 0:
-            metrics.updated_max_utc = datetime.datetime.fromtimestamp(
-                u_max, datetime.timezone.utc
-            ).strftime("%Y-%m-%d %H:%M:%S UTC")
+    if "updated" in df.columns and len(df["updated"].drop_nulls()) > 0:
+        u_min_val = df["updated"].min()
+        u_max_val = df["updated"].max()
+        if u_min_val is not None:
+            u_min = int(str(u_min_val).split(".")[0])
+            if u_min > 0:
+                metrics.updated_min_utc = datetime.datetime.fromtimestamp(
+                    float(u_min), datetime.timezone.utc
+                ).strftime("%Y-%m-%d %H:%M:%S UTC")
+        if u_max_val is not None:
+            u_max = int(str(u_max_val).split(".")[0])
+            if u_max > 0:
+                metrics.updated_max_utc = datetime.datetime.fromtimestamp(
+                    float(u_max), datetime.timezone.utc
+                ).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     # 6. Duplicate composite key check
     key_cols = [c for c in ["radio", "mcc", "net", "area", "cell", "unit"] if c in df.columns]
@@ -363,7 +373,7 @@ def generate_markdown_report(metrics: DatasetInspectionMetrics) -> str:
         f"| **Null Island (0.0, 0.0)** | {metrics.null_island_count:,} | {'Anomaly' if metrics.null_island_count > 0 else 'Clean'} |",
         f"| **Out-of-Bounds Coords** | {metrics.out_of_bounds_coords_count:,} | {'Error' if metrics.out_of_bounds_coords_count > 0 else 'Clean'} |",
         f"| **Missing Coordinates** | {metrics.missing_coords_count:,} | {'Error' if metrics.missing_coords_count > 0 else 'Clean'} |",
-        f"| **Within India Bounding Box** | {metrics.in_india_bbox_count:,} ({(metrics.in_india_bbox_count/metrics.total_rows*100):.2f}%) | Regional check |",
+        f"| **Within India Bounding Box** | {metrics.in_india_bbox_count:,} ({((metrics.in_india_bbox_count / metrics.total_rows * 100) if metrics.total_rows else 0.0):.2f}%) | Regional check |",
         "",
         "---",
         "",
@@ -392,10 +402,10 @@ def generate_markdown_report(metrics: DatasetInspectionMetrics) -> str:
         "",
         "| Metric | Min | Median | P95 | Max |",
         "| :--- | :--- | :--- | :--- | :--- |",
-        f"| **Estimated Range (meters)** | {metrics.range_min}m | {metrics.range_median}m | {metrics.range_p95}m | {metrics.range_max}m |",
-        f"| **Crowdsourced Samples** | {metrics.samples_min} | {metrics.samples_median} | {metrics.samples_p95} | {metrics.samples_max:,} |",
+        f"| **Estimated Range (meters)** | {f'{metrics.range_min}m' if metrics.range_min is not None else 'N/A'} | {f'{metrics.range_median}m' if metrics.range_median is not None else 'N/A'} | {f'{metrics.range_p95}m' if metrics.range_p95 is not None else 'N/A'} | {f'{metrics.range_max}m' if metrics.range_max is not None else 'N/A'} |",
+        f"| **Crowdsourced Samples** | {metrics.samples_min if metrics.samples_min is not None else 'N/A'} | {metrics.samples_median if metrics.samples_median is not None else 'N/A'} | {metrics.samples_p95 if metrics.samples_p95 is not None else 'N/A'} | {f'{metrics.samples_max:,}' if metrics.samples_max is not None else 'N/A'} |",
         "",
-        f"- **Single Sample Towers (Samples = 1):** {metrics.single_sample_count:,} ({(metrics.single_sample_count/metrics.total_rows*100):.2f}% of dataset)",
+        f"- **Single Sample Towers (Samples = 1):** {metrics.single_sample_count:,} ({((metrics.single_sample_count / metrics.total_rows * 100) if metrics.total_rows else 0.0):.2f}% of dataset)",
         f"- **Records with Recorded Signal:** {metrics.average_signal_recorded_count:,}",
         "",
         "---",
