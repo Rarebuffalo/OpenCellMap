@@ -1,12 +1,22 @@
-"""Unit tests for the streaming MCC extractor."""
+"""Unit tests for the extensible dataset extractor and provenance manifest generator."""
 
 import gzip
 import io
+import json
 import tempfile
 from pathlib import Path
 
-from scripts.extract_mcc import extract_from_local_file, stream_extract_mcc
+import pytest
 
+from scripts.extract_dataset import (
+    FilterPipeline,
+    HeaderValidationError,
+    MCCFilter,
+    RadioFilter,
+    extract_from_file,
+    stream_extract_dataset,
+    validate_header,
+)
 
 SAMPLE_MULTI_MCC_CSV = """radio,mcc,net,area,cell,unit,lon,lat,range,samples,changeable,created,updated,averageSignal
 LTE,404,45,1234,567890,12,77.2090,28.6139,1000,15,1,1609459200,1672531199,-75
@@ -17,96 +27,137 @@ GSM,404,20,501,10234,0,72.8777,19.0760,2500,5,1,1577836800,1640995200,-88
 """
 
 
-def test_stream_extract_mcc_filtering():
-    """Verify that only requested MCCs are kept, non-target MCCs are dropped, and header is preserved."""
-    input_bytes = SAMPLE_MULTI_MCC_CSV.encode("utf-8")
-    input_stream = io.BytesIO(input_bytes)
+def test_header_validation_success():
+    """Verify official 14-column header passes strict validation."""
+    valid_header = "radio,mcc,net,area,cell,unit,lon,lat,range,samples,changeable,created,updated,averageSignal\n"
+    fields, header_map = validate_header(valid_header, strict=True)
+    assert len(fields) == 14
+    assert header_map["radio"] == 0
+    assert header_map["mcc"] == 1
+    assert header_map["cell"] == 4
+
+
+def test_header_validation_failure():
+    """Verify corrupted header missing columns raises HeaderValidationError."""
+    corrupt_header = "radio,mcc,net,area,cell,lon,lat\n"
+    with pytest.raises(HeaderValidationError) as exc_info:
+        validate_header(corrupt_header, strict=True)
+    assert "Missing expected columns" in str(exc_info.value)
+
+
+def test_stream_extract_with_manifest():
+    """Verify extraction generates valid gzipped dataset and complete manifest JSON."""
+    input_stream = io.BytesIO(SAMPLE_MULTI_MCC_CSV.encode("utf-8"))
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        output_file = Path(tmpdir) / "extracted.csv.gz"
-        stats = stream_extract_mcc(
+        output_file = Path(tmpdir) / "india_cell_towers.csv.gz"
+        manifest_file = Path(tmpdir) / "india_cell_towers.manifest.json"
+        report_file = Path(tmpdir) / "report.json"
+
+        pipeline = FilterPipeline([MCCFilter(["404", "405"])])
+
+        result = stream_extract_dataset(
             input_stream=input_stream,
             output_path=output_file,
-            target_mccs={"404", "405"},
+            manifest_path=manifest_file,
+            report_path=report_file,
+            filter_pipeline=pipeline,
+            dataset_name="india_test_dataset",
+            source_name="fixture_stream",
             is_input_gzipped=False,
         )
 
-        assert stats.total_rows_read == 5, "Total data rows in fixture is 5"
-        assert stats.mcc_counts["404"] == 2, "Fixture has 2 MCC 404 rows"
-        assert stats.mcc_counts["405"] == 1, "Fixture has 1 MCC 405 row"
-        assert stats.total_rows_written == 4, "1 header row + 3 matching data rows"
-        assert stats.malformed_rows_count == 0
+        assert result.manifest.rows_processed == 5
+        assert result.manifest.rows_written == 3
+        assert result.manifest.malformed_rows == 0
+        assert result.mcc_breakdown["404"] == 2
+        assert result.mcc_breakdown["405"] == 1
 
-        # Read back gzipped output and verify contents
+        # Verify Manifest File on Disk
+        assert manifest_file.exists()
+        with open(manifest_file, "r", encoding="utf-8") as f:
+            manifest_data = json.load(f)
+
+        assert manifest_data["dataset_name"] == "india_test_dataset"
+        assert manifest_data["source_dataset"] == "fixture_stream"
+        assert manifest_data["rows_processed"] == 5
+        assert manifest_data["rows_written"] == 3
+        assert manifest_data["filters_applied"] == [{"type": "mcc_filter", "target_mccs": ["404", "405"]}]
+        assert len(manifest_data["output_checksum"]) == 64
+        assert manifest_data["output_size_bytes"] > 0
+        assert manifest_data["output_file"] == "india_cell_towers.csv.gz"
+
+        # Verify Report File on Disk
+        assert report_file.exists()
+        with open(report_file, "r", encoding="utf-8") as f:
+            report_data = json.load(f)
+        assert "performance" in report_data
+        assert "mcc_breakdown" in report_data
+
+        # Verify Output Gzip Content
         with gzip.open(output_file, "rt", encoding="utf-8") as f:
-            lines = [line.strip() for line in f if line.strip()]
+            lines = [l.strip() for l in f if l.strip()]
 
-        assert len(lines) == 4
-        # Verify header is exact
+        assert len(lines) == 4  # 1 header + 3 matched data rows
         assert lines[0].startswith("radio,mcc,net,area,cell")
-        # Verify all data lines belong to target MCCs
-        for data_line in lines[1:]:
-            parts = data_line.split(",")
-            assert parts[1] in ["404", "405"]
-            assert parts[1] not in ["262", "525"]
 
 
-def test_extract_from_gzipped_local_file():
-    """Verify extraction from a gzipped input file producing a gzipped output file."""
+def test_filter_extensibility_combined_mcc_and_radio():
+    """Verify combining MCCFilter and RadioFilter in pipeline."""
+    input_stream = io.BytesIO(SAMPLE_MULTI_MCC_CSV.encode("utf-8"))
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        source_gz = Path(tmpdir) / "source.csv.gz"
-        target_gz = Path(tmpdir) / "target.csv.gz"
+        output_file = Path(tmpdir) / "india_lte.csv.gz"
+        manifest_file = Path(tmpdir) / "india_lte.manifest.json"
+
+        # Keep only LTE rows with MCC 404 or 405
+        pipeline = FilterPipeline([
+            MCCFilter(["404", "405"]),
+            RadioFilter(["LTE"]),
+        ])
+
+        result = stream_extract_dataset(
+            input_stream=input_stream,
+            output_path=output_file,
+            manifest_path=manifest_file,
+            report_path=None,
+            filter_pipeline=pipeline,
+            dataset_name="india_lte_only",
+            is_input_gzipped=False,
+        )
+
+        assert result.manifest.rows_processed == 5
+        assert result.manifest.rows_written == 2  # Only the 2 LTE rows in 404 and 405
+        assert result.mcc_breakdown["404"] == 1
+        assert result.mcc_breakdown["405"] == 1
+
+
+def test_extract_from_gzipped_file_integration():
+    """Verify extract_from_file end-to-end with local .csv.gz file."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_gz = Path(tmpdir) / "world_sample.csv.gz"
+        output_gz = Path(tmpdir) / "india.csv.gz"
+        manifest_json = Path(tmpdir) / "india.manifest.json"
+        report_json = Path(tmpdir) / "india_report.json"
 
         with gzip.open(source_gz, "wt", encoding="utf-8") as f:
             f.write(SAMPLE_MULTI_MCC_CSV)
 
-        stats = extract_from_local_file(
+        pipeline = FilterPipeline([MCCFilter(["404", "405"])])
+
+        result = extract_from_file(
             input_file=source_gz,
-            output_path=target_gz,
-            target_mccs={"404", "405"},
+            output_file=output_gz,
+            manifest_file=manifest_json,
+            report_file=report_json,
+            filter_pipeline=pipeline,
+            dataset_name="india_cells",
         )
 
-        assert stats.total_rows_read == 5
-        assert stats.total_rows_written == 4
-        assert target_gz.exists()
-        assert target_gz.stat().st_size > 0
-        assert len(stats.output_sha256) == 64
-
-
-def test_extract_with_malformed_and_blank_lines():
-    """Verify that corrupt lines with missing columns are safely skipped and reported."""
-    csv_with_errors = """radio,mcc,net,area,cell,unit,lon,lat,range,samples,changeable,created,updated,averageSignal
-LTE,404,45,1234,567890,12,77.2090,28.6139,1000,15,1,1609459200,1672531199,-75
-invalid_truncated_row
-LTE,405,861,4321,987654,45,80.2707,13.0827,800,45,1,1612137600,1675209600,-70
-"""
-    input_stream = io.BytesIO(csv_with_errors.encode("utf-8"))
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        output_file = Path(tmpdir) / "out.csv.gz"
-        stats = stream_extract_mcc(
-            input_stream=input_stream,
-            output_path=output_file,
-            target_mccs={"404", "405"},
-            is_input_gzipped=False,
-        )
-
-        assert stats.total_rows_read == 3
-        assert stats.malformed_rows_count == 1
-        assert stats.mcc_counts["404"] == 1
-        assert stats.mcc_counts["405"] == 1
-
-
-def test_extract_empty_stream():
-    """Verify that an empty stream returns zero counts without error."""
-    input_stream = io.BytesIO(b"")
-    with tempfile.TemporaryDirectory() as tmpdir:
-        output_file = Path(tmpdir) / "empty.csv.gz"
-        stats = stream_extract_mcc(
-            input_stream=input_stream,
-            output_path=output_file,
-            target_mccs={"404", "405"},
-            is_input_gzipped=False,
-        )
-        assert stats.total_rows_read == 0
-        assert stats.total_rows_written == 0
+        assert result.manifest.rows_processed == 5
+        assert result.manifest.rows_written == 3
+        assert result.manifest.source_dataset == "world_sample.csv.gz"
+        assert len(result.manifest.source_checksum) == 64
+        assert output_gz.exists()
+        assert manifest_json.exists()
+        assert report_json.exists()

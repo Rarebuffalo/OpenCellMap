@@ -43,3 +43,15 @@ This document records the foundational architectural decisions made for the Open
   * **Simple Explanation:** If OpenCelliD changes their CSV column names or we switch data providers tomorrow, we only have to change one isolated adapter file instead of refactoring our entire project.
   * **Technical Explanation:** Domain models and repository interfaces remain strictly vendor-agnostic. The adapter converts external raw rows into normalized internal domain objects (`Cell`).
 * **Consequences:** Requires an explicit mapping step during ingestion.
+
+---
+
+## ADR 004: Dataset Provenance and Manifest System
+
+* **Status:** Accepted
+* **Context:** Ingesting cellular data from external global sources into regional extracts requires strict auditability and reproducibility. Without metadata, it is impossible to know when an extract was generated, which source checksum it came from, or what filters were applied.
+* **Decision:** Every generated dataset artifact must automatically create an accompanying `.manifest.json` file containing source checksums, extraction timestamps, extractor version, applied filters, and row counts.
+* **Why:**
+  * **Simple Explanation:** A manifest tells any developer or auditor exactly where a dataset came from, what filters created it, and proves its integrity with cryptographic checksums.
+  * **Technical Explanation:** Provides verifiable provenance and data immutability. Ensures that downstream inspection, validation, and benchmarking results can be traced back to the exact source version.
+* **Consequences:** Requires the extraction and ingestion tools to generate and validate manifest JSON files alongside `.csv.gz` files.

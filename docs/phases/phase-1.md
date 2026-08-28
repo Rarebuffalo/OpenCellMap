@@ -21,7 +21,7 @@ Without a clean, validated data foundation, all subsequent positioning algorithm
 - [x] **Milestone 1.1:** Minimal repository structure, `pyproject.toml`, Docker Compose (PostGIS 3.4), and `.env.example`.
 - [x] **Milestone 1.2:** Implement streaming dataset inspection tool (`scripts/inspect_dataset.py`) and synthetic test fixtures.
 - [x] **Milestone 1.3:** Source verification: verified OpenCelliD export structure (World Export vs 207 Country Exports table, India MCC 404/405 availability in World Export).
-- [x] **Milestone 1.4:** Build and test streaming MCC extraction pipeline (`scripts/extract_mcc.py`) with constant memory profile.
+- [x] **Milestone 1.4:** Build extensible dataset extractor (`scripts/extract_dataset.py`) with strict header validation, streaming filters, and manifest provenance system.
 - [ ] **Milestone 1.5:** Obtain India dataset via extraction and execute inspection tool.
 - [ ] **Milestone 1.6:** Analyze inspection report and formally propose the normalized database schema.
 - [ ] **Milestone 1.7:** (Awaiting Approval) Implement PostGIS schema migrations and repository layer.
@@ -34,8 +34,9 @@ Without a clean, validated data foundation, all subsequent positioning algorithm
 
 * **PostgreSQL 16 + PostGIS 3.4:** Enables spatial indexing (`GIST`) and native geometry operations.
 * **Polars & Streaming Gzip Readers:** Provides memory-safe streaming processing for multi-million-row CSV files without disk bloat.
+* **Dataset Manifests (JSON):** Implements cryptographic data provenance for every generated extract.
 * **Pydantic v2:** Provides strict schema validation and configuration management.
-* **Pytest:** Automated test verification for parsers and statistical calculations.
+* **Pytest:** Automated test verification for parsers, filters, and manifests.
 
 ---
 
