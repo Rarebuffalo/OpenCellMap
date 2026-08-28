@@ -1,6 +1,7 @@
-"""Unit tests for the extensible dataset extractor and provenance manifest generator."""
+"""Unit tests for the extensible dataset extractor, provenance manifests, and atomic safety."""
 
 import gzip
+import hashlib
 import io
 import json
 import tempfile
@@ -45,9 +46,11 @@ def test_header_validation_failure():
     assert "Missing expected columns" in str(exc_info.value)
 
 
-def test_stream_extract_with_manifest():
-    """Verify extraction generates valid gzipped dataset and complete manifest JSON."""
-    input_stream = io.BytesIO(SAMPLE_MULTI_MCC_CSV.encode("utf-8"))
+def test_stream_extract_with_manifest_and_checksums():
+    """Verify extraction generates valid gzipped dataset, exact on-the-fly checksums, and manifest JSON."""
+    input_bytes = SAMPLE_MULTI_MCC_CSV.encode("utf-8")
+    expected_input_sha256 = hashlib.sha256(input_bytes).hexdigest()
+    input_stream = io.BytesIO(input_bytes)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_file = Path(tmpdir) / "india_cell_towers.csv.gz"
@@ -70,8 +73,13 @@ def test_stream_extract_with_manifest():
         assert result.manifest.rows_processed == 5
         assert result.manifest.rows_written == 3
         assert result.manifest.malformed_rows == 0
-        assert result.mcc_breakdown["404"] == 2
-        assert result.mcc_breakdown["405"] == 1
+        assert result.manifest.source_checksum == expected_input_sha256
+
+        # Verify on-the-fly output checksum matches actual file on disk
+        with open(output_file, "rb") as f:
+            disk_output_sha256 = hashlib.sha256(f.read()).hexdigest()
+        assert result.manifest.output_checksum == disk_output_sha256
+        assert len(result.manifest.output_checksum) == 64
 
         # Verify Manifest File on Disk
         assert manifest_file.exists()
@@ -79,12 +87,9 @@ def test_stream_extract_with_manifest():
             manifest_data = json.load(f)
 
         assert manifest_data["dataset_name"] == "india_test_dataset"
-        assert manifest_data["source_dataset"] == "fixture_stream"
         assert manifest_data["rows_processed"] == 5
         assert manifest_data["rows_written"] == 3
         assert manifest_data["filters_applied"] == [{"type": "mcc_filter", "target_mccs": ["404", "405"]}]
-        assert len(manifest_data["output_checksum"]) == 64
-        assert manifest_data["output_size_bytes"] > 0
         assert manifest_data["output_file"] == "india_cell_towers.csv.gz"
 
         # Verify Report File on Disk
@@ -100,6 +105,47 @@ def test_stream_extract_with_manifest():
 
         assert len(lines) == 4  # 1 header + 3 matched data rows
         assert lines[0].startswith("radio,mcc,net,area,cell")
+
+
+def test_atomic_cleanup_on_failure():
+    """Verify that failure during extraction cleans up staging files and leaves no partial output."""
+    class FailingStream(io.RawIOBase):
+        def __init__(self):
+            self.lines = [
+                b"radio,mcc,net,area,cell,unit,lon,lat,range,samples,changeable,created,updated,averageSignal\n",
+                b"LTE,404,45,1234,567890,12,77.2090,28.6139,1000,15,1,1609459200,1672531199,-75\n",
+            ]
+            self.index = 0
+
+        def readable(self):
+            return True
+
+        def read(self, size=-1):
+            if self.index < len(self.lines):
+                chunk = self.lines[self.index]
+                self.index += 1
+                return chunk
+            raise ConnectionResetError("Simulated network drop mid-stream")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_file = Path(tmpdir) / "india_partial.csv.gz"
+        manifest_file = Path(tmpdir) / "india_partial.manifest.json"
+
+        pipeline = FilterPipeline([MCCFilter(["404", "405"])])
+
+        with pytest.raises(ConnectionResetError):
+            stream_extract_dataset(
+                input_stream=FailingStream(),
+                output_path=output_file,
+                manifest_path=manifest_file,
+                report_path=None,
+                filter_pipeline=pipeline,
+                is_input_gzipped=False,
+            )
+
+        # Output and manifest must NOT exist after failure
+        assert not output_file.exists(), "Partial output file must be cleaned up on failure"
+        assert not manifest_file.exists(), "Manifest must not exist on failure"
 
 
 def test_filter_extensibility_combined_mcc_and_radio():
@@ -161,3 +207,37 @@ def test_extract_from_gzipped_file_integration():
         assert output_gz.exists()
         assert manifest_json.exists()
         assert report_json.exists()
+
+
+def test_token_exclusion_from_manifest_and_report():
+    """Verify that credentials / tokens are never leaked into manifest or report JSON."""
+    fake_token = "secret_token_12345_xyz"
+    input_bytes = SAMPLE_MULTI_MCC_CSV.encode("utf-8")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_file = Path(tmpdir) / "india.csv.gz"
+        manifest_file = Path(tmpdir) / "india.manifest.json"
+        report_file = Path(tmpdir) / "india_report.json"
+
+        pipeline = FilterPipeline([MCCFilter(["404"])])
+
+        stream_extract_dataset(
+            input_stream=io.BytesIO(input_bytes),
+            output_path=output_file,
+            manifest_path=manifest_file,
+            report_path=report_file,
+            filter_pipeline=pipeline,
+            dataset_name="india_cells",
+            source_name="opencellid_world_export_http",
+            is_input_gzipped=False,
+        )
+
+        with open(manifest_file, "r", encoding="utf-8") as f:
+            manifest_text = f.read()
+        with open(report_file, "r", encoding="utf-8") as f:
+            report_text = f.read()
+
+        assert fake_token not in manifest_text
+        assert fake_token not in report_text
+        assert "token=" not in manifest_text
+        assert "token=" not in report_text

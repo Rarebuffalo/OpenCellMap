@@ -2,7 +2,8 @@
 """Extensible Streaming Dataset Extractor and Manifest Generator for OpenCelliD.
 
 Processes raw cellular exports in a memory-safe stream, applies configurable filters,
-validates schema headers, and produces both the filtered compressed dataset and its
+validates schema headers, computes cryptographic hashes on-the-fly, ensures atomic
+file generation on success, and produces both the filtered compressed dataset and its
 accompanying provenance manifest.
 """
 
@@ -164,11 +165,20 @@ class DatasetManifest:
     output_size_bytes: int
     output_file: str
 
-    def save(self, path: Path) -> None:
-        """Write the manifest formatted as JSON."""
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(asdict(self), f, indent=2)
+    def save_atomic(self, final_path: Path) -> None:
+        """Write the manifest formatted as JSON atomically via a temp file."""
+        final_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = final_path.parent / f".tmp.{os.getpid()}.{time.time_ns()}.{final_path.name}"
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(asdict(self), f, indent=2)
+            os.replace(tmp_path, final_path)
+        finally:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
 
 
 @dataclass
@@ -179,6 +189,68 @@ class ExtractionResult:
     elapsed_seconds: float
     throughput_rows_per_sec: float
     mcc_breakdown: dict[str, int] = field(default_factory=dict)
+
+
+class HashingBinaryReader(io.RawIOBase, BinaryIO):  # type: ignore[misc]
+    """Transparent stream wrapper that computes a SHA256 checksum on-the-fly as bytes are read."""
+
+    def __init__(self, raw_stream: BinaryIO):
+        self.raw_stream = raw_stream
+        self.hasher = hashlib.sha256()
+        self.total_bytes_read = 0
+
+    def readable(self) -> bool:
+        return True
+
+    def read(self, size: int = -1) -> bytes:
+        chunk = self.raw_stream.read(size)
+        if chunk:
+            self.hasher.update(chunk)
+            self.total_bytes_read += len(chunk)
+        return chunk
+
+    def readinto(self, buffer: Any, /) -> int:
+        n = self.raw_stream.readinto(buffer)  # type: ignore
+        if n and n > 0:
+            self.hasher.update(buffer[:n])
+            self.total_bytes_read += n
+        return n or 0
+
+    @property
+    def sha256_hexdigest(self) -> str:
+        return self.hasher.hexdigest()
+
+
+class HashingBinaryWriter(io.RawIOBase, BinaryIO):  # type: ignore[misc]
+    """Transparent stream wrapper that computes a SHA256 checksum on-the-fly as bytes are written."""
+
+    def __init__(self, raw_stream: BinaryIO):
+        self.raw_stream = raw_stream
+        self.hasher = hashlib.sha256()
+        self.total_bytes_written = 0
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, b: Any, /) -> int:
+        self.hasher.update(b)
+        n = self.raw_stream.write(b)
+        self.total_bytes_written += len(b)
+        return n
+
+    def flush(self) -> None:
+        if hasattr(self.raw_stream, "closed") and not self.raw_stream.closed:
+            self.raw_stream.flush()
+
+    def close(self) -> None:
+        if hasattr(self.raw_stream, "closed") and not self.raw_stream.closed:
+            self.flush()
+            self.raw_stream.close()
+        super().close()
+
+    @property
+    def sha256_hexdigest(self) -> str:
+        return self.hasher.hexdigest()
 
 
 class StreamLineReader:
@@ -230,18 +302,27 @@ def stream_extract_dataset(
     filter_pipeline: FilterPipeline,
     dataset_name: str = "extracted_cellular_data",
     source_name: str = "opencellid_world_export",
-    source_checksum: str = "unknown",
     source_version_date: str = "latest",
     is_input_gzipped: bool = True,
     strict_header_check: bool = True,
     progress_interval_rows: int = 1_000_000,
 ) -> ExtractionResult:
-    """Execute streaming extraction, validate headers, write gzip output, and generate manifest."""
+    """Execute streaming extraction, validate headers, write gzip output atomically, and generate manifest."""
     start_time = time.time()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
-    line_reader = StreamLineReader(input_stream, is_gzipped=is_input_gzipped)
+    # Temporary staging paths for atomic safety
+    tmp_output_path = output_path.parent / f".tmp.{os.getpid()}.{time.time_ns()}.{output_path.name}"
+    tmp_report_path = (
+        (report_path.parent / f".tmp.{os.getpid()}.{time.time_ns()}.{report_path.name}")
+        if report_path
+        else None
+    )
+
+    # Wrap input in on-the-fly hashing stream
+    hashing_input = HashingBinaryReader(input_stream)
+    line_reader = StreamLineReader(hashing_input, is_gzipped=is_input_gzipped)
     line_iter = iter(line_reader)
 
     # 1. Validate Header
@@ -259,92 +340,117 @@ def stream_extract_dataset(
     mcc_breakdown: dict[str, int] = {}
     last_log_time = start_time
 
-    # 2. Stream and Filter
-    with gzip.open(output_path, mode="wt", encoding="utf-8", newline="") as out_gz:
-        # Preserve original header
-        out_gz.write(header_line.rstrip("\r\n") + "\n")
+    try:
+        # 2. Stream, Filter, and Hash Output On-the-Fly
+        with open(tmp_output_path, "wb") as raw_out_f:
+            hashing_writer = HashingBinaryWriter(raw_out_f)
+            with gzip.GzipFile(fileobj=hashing_writer, mode="wb", mtime=0.0) as gz_out:
+                text_out = io.TextIOWrapper(gz_out, encoding="utf-8", newline="")
 
-        for line_str in line_iter:
-            raw_line = line_str.rstrip("\r\n")
-            if not raw_line.strip():
-                continue
+                # Preserve original header
+                text_out.write(header_line.rstrip("\r\n") + "\n")
 
-            rows_processed += 1
-            fields = raw_line.split(",")
+                for line_str in line_iter:
+                    raw_line = line_str.rstrip("\r\n")
+                    if not raw_line.strip():
+                        continue
 
-            if len(fields) != len(header_fields):
-                malformed_rows += 1
-                continue
+                    rows_processed += 1
+                    fields = raw_line.split(",")
 
-            if filter_pipeline.matches(fields, header_map):
-                out_gz.write(raw_line + "\n")
-                rows_written += 1
+                    if len(fields) != len(header_fields):
+                        malformed_rows += 1
+                        continue
 
-                # Track MCC breakdown
-                row_mcc = fields[mcc_idx].strip()
-                mcc_breakdown[row_mcc] = mcc_breakdown.get(row_mcc, 0) + 1
+                    if filter_pipeline.matches(fields, header_map):
+                        text_out.write(raw_line + "\n")
+                        rows_written += 1
 
-            # Progress logging
-            if rows_processed % progress_interval_rows == 0:
-                now = time.time()
-                elapsed = now - start_time
-                segment_rate = progress_interval_rows / max(0.001, now - last_log_time)
-                console.print(
-                    f"Progress: [cyan]{rows_processed:,}[/cyan] rows processed | "
-                    f"[green]{rows_written:,}[/green] matched | "
-                    f"Elapsed: {elapsed:.1f}s | Throughput: {segment_rate:,.0f} rows/s"
-                )
-                last_log_time = now
+                        # Track MCC breakdown
+                        row_mcc = fields[mcc_idx].strip()
+                        mcc_breakdown[row_mcc] = mcc_breakdown.get(row_mcc, 0) + 1
 
-    elapsed_seconds = max(0.001, time.time() - start_time)
-    throughput = rows_processed / elapsed_seconds
+                    # Progress logging
+                    if rows_processed % progress_interval_rows == 0:
+                        now = time.time()
+                        elapsed = now - start_time
+                        segment_rate = progress_interval_rows / max(0.001, now - last_log_time)
+                        console.print(
+                            f"Progress: [cyan]{rows_processed:,}[/cyan] rows processed | "
+                            f"[green]{rows_written:,}[/green] matched | "
+                            f"Elapsed: {elapsed:.1f}s | Throughput: {segment_rate:,.0f} rows/s"
+                        )
+                        last_log_time = now
 
-    # 3. Compute Output Checksum
-    hasher = hashlib.sha256()
-    with open(output_path, "rb") as f:
-        while chunk := f.read(1024 * 1024):
-            hasher.update(chunk)
-    output_sha256 = hasher.hexdigest()
-    output_size_bytes = output_path.stat().st_size
+                text_out.flush()
 
-    # 4. Generate Manifest
-    manifest = DatasetManifest(
-        dataset_name=dataset_name,
-        source_dataset=source_name,
-        source_checksum=source_checksum,
-        source_version_date=source_version_date,
-        extraction_timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        extractor_version=EXTRACTOR_VERSION,
-        filters_applied=filter_pipeline.to_list(),
-        rows_processed=rows_processed,
-        rows_written=rows_written,
-        malformed_rows=malformed_rows,
-        output_checksum=output_sha256,
-        output_size_bytes=output_size_bytes,
-        output_file=output_path.name,
-    )
-    manifest.save(manifest_path)
+        # If any trailing unread bytes remain in the stream, drain them to finalize source hash
+        while hashing_input.read(64 * 1024):
+            pass
 
-    # 5. Save report if requested
-    if report_path:
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_payload = {
-            "manifest": asdict(manifest),
-            "performance": {
-                "elapsed_seconds": round(elapsed_seconds, 2),
-                "throughput_rows_per_sec": round(throughput, 1),
-            },
-            "mcc_breakdown": mcc_breakdown,
-        }
-        with open(report_path, "w", encoding="utf-8") as f:
-            json.dump(report_payload, f, indent=2)
+        elapsed_seconds = max(0.001, time.time() - start_time)
+        throughput = rows_processed / elapsed_seconds
 
-    return ExtractionResult(
-        manifest=manifest,
-        elapsed_seconds=round(elapsed_seconds, 2),
-        throughput_rows_per_sec=round(throughput, 1),
-        mcc_breakdown=mcc_breakdown,
-    )
+        source_sha256 = hashing_input.sha256_hexdigest
+        output_sha256 = hashing_writer.sha256_hexdigest
+        output_size_bytes = tmp_output_path.stat().st_size
+
+        # 3. Atomically replace target data file
+        os.replace(tmp_output_path, output_path)
+
+        # 4. Generate & Atomically Write Manifest
+        manifest = DatasetManifest(
+            dataset_name=dataset_name,
+            source_dataset=source_name,
+            source_checksum=source_sha256,
+            source_version_date=source_version_date,
+            extraction_timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            extractor_version=EXTRACTOR_VERSION,
+            filters_applied=filter_pipeline.to_list(),
+            rows_processed=rows_processed,
+            rows_written=rows_written,
+            malformed_rows=malformed_rows,
+            output_checksum=output_sha256,
+            output_size_bytes=output_size_bytes,
+            output_file=output_path.name,
+        )
+        manifest.save_atomic(manifest_path)
+
+        # 5. Save report atomically if requested
+        if report_path and tmp_report_path:
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_payload = {
+                "manifest": asdict(manifest),
+                "performance": {
+                    "elapsed_seconds": round(elapsed_seconds, 2),
+                    "throughput_rows_per_sec": round(throughput, 1),
+                },
+                "mcc_breakdown": mcc_breakdown,
+            }
+            with open(tmp_report_path, "w", encoding="utf-8") as f:
+                json.dump(report_payload, f, indent=2)
+            os.replace(tmp_report_path, report_path)
+
+        return ExtractionResult(
+            manifest=manifest,
+            elapsed_seconds=round(elapsed_seconds, 2),
+            throughput_rows_per_sec=round(throughput, 1),
+            mcc_breakdown=mcc_breakdown,
+        )
+
+    except Exception:
+        # Cleanup temporary files on failure
+        if tmp_output_path.exists():
+            try:
+                tmp_output_path.unlink()
+            except OSError:
+                pass
+        if tmp_report_path and tmp_report_path.exists():
+            try:
+                tmp_report_path.unlink()
+            except OSError:
+                pass
+        raise
 
 
 def extract_from_file(
@@ -358,16 +464,9 @@ def extract_from_file(
     strict_header: bool = True,
     progress_interval: int = 1_000_000,
 ) -> ExtractionResult:
-    """Run extraction from a local file (.csv or .csv.gz)."""
+    """Run extraction from a local file (.csv or .csv.gz) with on-the-fly single-pass hashing."""
     if not input_file.exists():
         raise FileNotFoundError(f"Input file not found: {input_file}")
-
-    # Compute source checksum
-    hasher = hashlib.sha256()
-    with open(input_file, "rb") as f:
-        while chunk := f.read(1024 * 1024):
-            hasher.update(chunk)
-    source_checksum = hasher.hexdigest()
 
     is_gz = input_file.name.endswith(".gz")
     with open(input_file, "rb") as in_stream:
@@ -379,7 +478,6 @@ def extract_from_file(
             filter_pipeline=filter_pipeline,
             dataset_name=dataset_name,
             source_name=input_file.name,
-            source_checksum=source_checksum,
             source_version_date=source_version_date,
             is_input_gzipped=is_gz,
             strict_header_check=strict_header,
@@ -398,7 +496,7 @@ def extract_from_http(
     strict_header: bool = True,
     progress_interval: int = 1_000_000,
 ) -> ExtractionResult:
-    """Run extraction directly from an authenticated HTTP stream."""
+    """Run extraction directly from an authenticated HTTP stream with on-the-fly hashing."""
     req = urllib.request.Request(
         url,
         headers={"User-Agent": "OpenLocationResolver-Ingestion/0.2.0"},
@@ -412,7 +510,6 @@ def extract_from_http(
             filter_pipeline=filter_pipeline,
             dataset_name=dataset_name,
             source_name="opencellid_world_export_http",
-            source_checksum="streamed_http",
             source_version_date=source_version_date,
             is_input_gzipped=True,
             strict_header_check=strict_header,
@@ -426,6 +523,7 @@ def print_result_table(result: ExtractionResult) -> None:
     console.print("\n[bold cyan]=== DATASET EXTRACTION & PROVENANCE SUMMARY ===[/bold cyan]")
     console.print(f"Dataset Name: [bold]{m.dataset_name}[/bold]")
     console.print(f"Output File: [bold cyan]{m.output_file}[/bold cyan] ({m.output_size_bytes:,} bytes)")
+    console.print(f"Source Checksum (SHA256): `{m.source_checksum}`")
     console.print(f"Output Checksum (SHA256): `{m.output_checksum}`")
     console.print(f"Extraction Time: {m.extraction_timestamp}")
     console.print(f"Elapsed: [bold green]{result.elapsed_seconds}s[/bold green] | Throughput: [bold green]{result.throughput_rows_per_sec:,.0f} rows/s[/bold green]\n")
