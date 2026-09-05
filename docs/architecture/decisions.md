@@ -71,3 +71,20 @@ This document records the foundational architectural decisions made for the Open
   * **Technical Explanation:** MLS exports share the exact same 14-column CSV schema (`radio,mcc,net,area,cell,...`) as our existing extractor. CC0 licensing permits building unencumbered offline SQLite databases for mobile distribution without triggering CC-BY-SA copyleft constraints.
 * **Consequences:** The ingestion pipeline will support ingesting both MLS-formatted CSV dumps and continuous beaconDB updates, while the query resolver delegates online misses to an optional OpenCelliD adapter.
 
+---
+
+## ADR 006: PostgreSQL + PostGIS Canonical Schema Design & Spatial Indexing
+
+* **Status:** Accepted
+* **Context:** The application needs a normalized, high-performance database schema capable of executing sub-millisecond exact composite lookups on cell identifiers `(radio, mcc, mnc, lac_tac, cell_id)` as well as geographic radius and polygon queries across multi-million cell records without loading data into application memory.
+* **Decision:**
+  1. Create the `cell_towers` table with canonical column names (`radio`, `mcc`, `mnc`, `lac_tac`, `cell_id`, `latitude`, `longitude`, `location`, `range_m`, `is_suspicious_range`, `samples`, `changeable`, `created_at`, `updated_at`, `average_signal`, `source`, `source_dataset`).
+  2. Enforce a unique composite natural key constraint `uq_cell_towers_composite_key` on `(radio, mcc, mnc, lac_tac, cell_id)` alongside a surrogate `BIGSERIAL` primary key.
+  3. Store cell coordinates as both explicit `DOUBLE PRECISION` numeric columns (`latitude`, `longitude`) and a native PostGIS `GEOMETRY(Point, 4326)` column.
+  4. Create a spatial `GIST` index on `location`, a B-Tree index on `(mcc, mnc)`, and a B-Tree index on `(mcc, mnc, lac_tac)`.
+  5. Create a separate `operator_networks` table keyed on `(mcc, mnc)` to store telecom operator names and circle metadata without denormalizing millions of rows.
+* **Why:**
+  * **Simple Explanation:** An exact cell lookup finds a tower instantly using its network codes, while a spatial index finds all towers near a point in milliseconds without scanning the entire table.
+  * **Technical Explanation:** PostGIS `Point, 4326` geometry combined with R-Tree spatial indexing (`GIST`) allows PostgreSQL to prune bounding boxes efficiently during `ST_DWithin` and `ST_Contains` operations. Separating operator circle metadata avoids repeating operator name strings 2.5 million times.
+* **Consequences:** Ingestion requires transforming `(lon, lat)` pairs into PostGIS geometry objects (`ST_SetSRID(ST_MakePoint(lon, lat), 4326)`).
+

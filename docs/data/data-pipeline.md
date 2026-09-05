@@ -77,16 +77,16 @@ To transform raw data into a reliable positioning foundation, data flows through
 * **What it is:** A read-only analytical tool that computes distributions of coordinates, signal measurements, samples, and duplicates.
 * **Why it matters:** Prevents designing database schemas based on incorrect assumptions. Data anomalies (such as Null Island `0.0, 0.0` or out-of-bounds coordinates) are identified empirically before touching the database.
 
-### Stage 4: Validation & Sanitization
-* **What it is:** Strict filtering rules applied to individual rows before ingestion.
-* **Why it matters:** Coordinates must be mathematically valid WGS-84 numbers ($-90 \le \text{lat} \le 90$, $-180 \le \text{lon} \le 180$). Corrupt or truncated lines are caught and quarantined with structured error logs.
+### Stage 4: Source Ingestion Adapter & Normalization (`location_resolver.ingestion.adapter`)
+* **What it is:** Converts heterogeneous source headers (such as legacy Indian `404.csv`/`405.csv` and standard OpenCelliD/MLS CSVs) into the canonical `Cell` domain entity (`location_resolver.domain.cell.Cell`).
+* **Why it matters:** Isolates vendor-specific representations (`long` -> `longitude`, `lac` -> `lac_tac`, `cid` -> `cell_id`, `sample` -> `samples`, `avgsignal` -> `average_signal`) so downstream database and resolver layers remain strictly source-agnostic. In 4G LTE, it decomposes the 28-bit ECI into underlying `eNodeB_ID` (`CID // 256`) and `Sector_ID` (`CID % 256`).
 
-### Stage 5: Normalization
-* **What it is:** Mapping vendor field names (e.g., `net`, `area`, `cell`, `unit`) to standardized domain concepts (`mnc`, `lac_tac`, `cell_id`, `pci_psc`).
-* **Why it matters:** Isolates vendor-specific representations so the rest of the application (and positioning algorithms) remain completely source-agnostic. In 4G LTE, it decomposes the 28-bit ECI into its underlying `eNodeB_ID` ($\text{CID} // 256$) and `Sector_ID` ($\text{CID} \% 256$).
+### Stage 5: Validation & Quality Classification (`location_resolver.ingestion.validator`)
+* **What it is:** Strict geometric, telecommunication identifier, and accuracy classification rules applied to canonical `Cell` entities.
+* **Why it matters:** Enforces WGS-84 coordinate integrity ($-90 \le \text{lat} \le 90$, $-180 \le \text{lon} \le 180$, rejecting $(0, 0)$ Null Island), validates identifier positive bounds, and classifies coverage radius (`VALID`, `SUSPICIOUS` $> 50\text{ km}$, `INVALID` $\le 0$).
 
 ### Stage 6: Database Ingestion (PostgreSQL + PostGIS)
-* **What it is:** Bulk loading normalized records into relational tables with spatial geometry.
+* **What it is:** Bulk loading validated canonical records into relational tables with spatial geometry.
 * **Why it matters:** Spatial indexes (`GIST`) enable instant geographic queries (such as finding all towers within 2 kilometers of a point) without loading millions of rows into Python memory.
 
 ---

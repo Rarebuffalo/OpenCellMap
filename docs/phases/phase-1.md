@@ -23,9 +23,9 @@ Without a clean, validated data foundation, all subsequent positioning algorithm
 - [x] **Milestone 1.3:** Source verification: verified OpenCelliD export structure (World Export vs 207 Country Exports table, India MCC 404/405 availability in World Export).
 - [x] **Milestone 1.4:** Build extensible dataset extractor (`scripts/extract_dataset.py`) with strict header validation, streaming filters, and manifest provenance system.
 - [x] **Milestone 1.5:** Execute real streaming extraction on OpenCelliD World Export and inspect empirical results.
-- [ ] **Milestone 1.6:** Review empirical findings and formally propose the normalized database schema.
-- [ ] **Milestone 1.7:** (Awaiting Approval) Implement PostGIS schema migrations and repository layer.
-- [ ] **Milestone 1.8:** Implement parser, normalizer, validator, and bulk loader.
+- [x] **Milestone 1.6:** Canonical Domain Model (`Cell`, `RadioType`), Source Ingestion Adapter (`CellSourceAdapter`), and Quality Validator (`CellValidator`).
+- [x] **Milestone 1.7:** PostgreSQL + PostGIS canonical schema migrations, connection management, and spatial indexing (`GIST`).
+- [ ] **Milestone 1.8:** Implement streaming PostGIS bulk loader (`COPY`) for 2.495M Indian records.
 - [ ] **Milestone 1.9:** Ingest and verify dataset with automated integration tests.
 
 ---
